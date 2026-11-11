@@ -1,0 +1,1039 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Robot Arm Kinematics & Controller</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js & OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Font Family -->
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        cyber: {
+                            900: '#090d16',
+                            800: '#111827',
+                            700: '#1f293d',
+                            600: '#334155',
+                            accent: '#00f0ff',
+                            amber: '#ffb703',
+                            pink: '#ff0055',
+                            green: '#00f59b'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #090d16;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1f293d;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #00f0ff;
+        }
+        .glow-cyan {
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.25);
+        }
+        .glow-amber {
+            box-shadow: 0 0 15px rgba(255, 183, 3, 0.25);
+        }
+        /* Custom range slider styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: #1f293d;
+            border-radius: 4px;
+            height: 6px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #00f0ff;
+            cursor: pointer;
+            box-shadow: 0 0 8px #00f0ff;
+            transition: all 0.15s ease;
+        }
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            background: #ffffff;
+        }
+    </style>
+</head>
+<body class="bg-cyber-900 text-slate-200 font-sans h-screen flex flex-col overflow-hidden selection:bg-cyber-accent selection:text-cyber-900">
+
+    <!-- Top Navigation Header -->
+    <header class="h-14 border-b border-cyber-700 bg-cyber-800/90 backdrop-blur px-4 flex items-center justify-between z-10">
+        <div class="flex items-center space-x-3">
+            <div class="p-2 bg-cyber-accent/10 rounded-lg border border-cyber-accent/30 text-cyber-accent">
+                <i data-lucide="bot" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-sm md:text-base tracking-wide flex items-center gap-2">
+                    NEXUS ARM-V4 <span class="text-[10px] px-2 py-0.5 rounded bg-cyber-accent/20 text-cyber-accent border border-cyber-accent/40 font-mono">3D KINEMATICS</span>
+                </h1>
+            </div>
+        </div>
+
+        <!-- System Quick Indicators -->
+        <div class="flex items-center space-x-4 text-xs font-mono">
+            <div class="hidden sm:flex items-center space-x-2 bg-cyber-900/60 px-3 py-1.5 rounded-md border border-cyber-700">
+                <span class="text-slate-400">STATUS:</span>
+                <span id="systemStatus" class="text-cyber-green flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-cyber-green animate-pulse"></span> READY
+                </span>
+            </div>
+            <div class="hidden md:flex items-center space-x-2 bg-cyber-900/60 px-3 py-1.5 rounded-md border border-cyber-700">
+                <span class="text-slate-400">IK SOLVER:</span>
+                <span id="ikStatus" class="text-cyber-accent">CONVERGED</span>
+            </div>
+            <button id="btnResetAll" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md border border-slate-600 transition flex items-center gap-1.5 text-xs font-sans">
+                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Reset
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace Layout -->
+    <div class="flex-1 flex overflow-hidden relative">
+
+        <!-- Left Sidebar: Controls & Modes -->
+        <aside class="w-80 md:w-96 border-r border-cyber-700 bg-cyber-800/80 flex flex-col z-10 shrink-0">
+            <!-- Mode Toggle Tabs -->
+            <div class="p-3 border-b border-cyber-700 grid grid-cols-2 gap-2 bg-cyber-900/40">
+                <button id="tabFK" onclick="switchMode('FK')" class="py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition bg-cyber-accent text-cyber-900 font-bold shadow-sm">
+                    <i data-lucide="sliders" class="w-4 h-4"></i> Forward (FK)
+                </button>
+                <button id="tabIK" onclick="switchMode('IK')" class="py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition bg-cyber-700/50 text-slate-400 hover:text-slate-200">
+                    <i data-lucide="target" class="w-4 h-4"></i> Inverse (IK)
+                </button>
+            </div>
+
+            <!-- Scrollable Controls Container -->
+            <div class="flex-1 overflow-y-auto p-4 space-y-5">
+                
+                <!-- FK PANEL -->
+                <div id="panelFK" class="space-y-4">
+                    <div class="flex items-center justify-between text-xs text-slate-400 font-mono">
+                        <span>JOINT CONTROLS</span>
+                        <span class="text-cyber-accent">ANGULAR DEG</span>
+                    </div>
+
+                    <!-- Joint 1: Base -->
+                    <div class="bg-cyber-900/60 p-3 rounded-xl border border-cyber-700/60 space-y-2">
+                        <div class="flex justify-between items-center text-xs">
+                            <label class="font-medium flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-cyber-accent"></span> J1: Base ($\theta_1$)
+                            </label>
+                            <span id="valJ1" class="font-mono text-cyber-accent bg-cyber-700/40 px-2 py-0.5 rounded">0°</span>
+                        </div>
+                        <input type="range" id="sliderJ1" min="-180" max="180" value="0" class="w-full">
+                        <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                            <span>-180°</span><span>0°</span><span>180°</span>
+                        </div>
+                    </div>
+
+                    <!-- Joint 2: Shoulder -->
+                    <div class="bg-cyber-900/60 p-3 rounded-xl border border-cyber-700/60 space-y-2">
+                        <div class="flex justify-between items-center text-xs">
+                            <label class="font-medium flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-cyber-amber"></span> J2: Shoulder ($\theta_2$)
+                            </label>
+                            <span id="valJ2" class="font-mono text-cyber-amber bg-cyber-700/40 px-2 py-0.5 rounded">30°</span>
+                        </div>
+                        <input type="range" id="sliderJ2" min="-60" max="120" value="30" class="w-full">
+                        <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                            <span>-60°</span><span>30°</span><span>120°</span>
+                        </div>
+                    </div>
+
+                    <!-- Joint 3: Elbow -->
+                    <div class="bg-cyber-900/60 p-3 rounded-xl border border-cyber-700/60 space-y-2">
+                        <div class="flex justify-between items-center text-xs">
+                            <label class="font-medium flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-cyber-pink"></span> J3: Elbow ($\theta_3$)
+                            </label>
+                            <span id="valJ3" class="font-mono text-cyber-pink bg-cyber-700/40 px-2 py-0.5 rounded">-45°</span>
+                        </div>
+                        <input type="range" id="sliderJ3" min="-140" max="140" value="-45" class="w-full">
+                        <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                            <span>-140°</span><span>0°</span><span>140°</span>
+                        </div>
+                    </div>
+
+                    <!-- Joint 4: Wrist Roll -->
+                    <div class="bg-cyber-900/60 p-3 rounded-xl border border-cyber-700/60 space-y-2">
+                        <div class="flex justify-between items-center text-xs">
+                            <label class="font-medium flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-cyber-green"></span> J4: Wrist ($\theta_4$)
+                            </label>
+                            <span id="valJ4" class="font-mono text-cyber-green bg-cyber-700/40 px-2 py-0.5 rounded">15°</span>
+                        </div>
+                        <input type="range" id="sliderJ4" min="-110" max="110" value="15" class="w-full">
+                        <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                            <span>-110°</span><span>0°</span><span>110°</span>
+                        </div>
+                    </div>
+
+                    <!-- Gripper Control -->
+                    <div class="bg-cyber-900/60 p-3 rounded-xl border border-cyber-700/60 space-y-2">
+                        <div class="flex justify-between items-center text-xs">
+                            <label class="font-medium flex items-center gap-2">
+                                <i data-lucide="scissors" class="w-3.5 h-3.5 text-slate-300"></i> End-Effector Gripper
+                            </label>
+                            <span id="valGripper" class="font-mono text-slate-300 bg-cyber-700/40 px-2 py-0.5 rounded">50%</span>
+                        </div>
+                        <input type="range" id="sliderGripper" min="0" max="100" value="50" class="w-full">
+                    </div>
+                </div>
+
+                <!-- IK PANEL (Hidden by default) -->
+                <div id="panelIK" class="space-y-4 hidden">
+                    <div class="p-3 bg-cyber-accent/10 border border-cyber-accent/30 rounded-xl text-xs text-cyber-accent flex items-start gap-2">
+                        <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5"></i>
+                        <span>Drag the target sphere directly in the 3D viewport or fine-tune coordinates below.</span>
+                    </div>
+
+                    <!-- Target Coordinates -->
+                    <div class="space-y-3">
+                        <!-- X Position -->
+                        <div class="bg-cyber-900/60 p-3 rounded-xl border border-cyber-700/60 space-y-2">
+                            <div class="flex justify-between items-center text-xs">
+                                <label class="font-medium">Target X (Left / Right)</label>
+                                <span id="valIKX" class="font-mono text-cyber-accent">0.00 m</span>
+                            </div>
+                            <input type="range" id="sliderIKX" min="-3" max="3" step="0.05" value="1.8" class="w-full">
+                        </div>
+
+                        <!-- Y Position (Height) -->
+                        <div class="bg-cyber-900/60 p-3 rounded-xl border border-cyber-700/60 space-y-2">
+                            <div class="flex justify-between items-center text-xs">
+                                <label class="font-medium">Target Y (Elevation)</label>
+                                <span id="valIKY" class="font-mono text-cyber-accent">1.50 m</span>
+                            </div>
+                            <input type="range" id="sliderIKY" min="0.2" max="3.8" step="0.05" value="2.1" class="w-full">
+                        </div>
+
+                        <!-- Z Position -->
+                        <div class="bg-cyber-900/60 p-3 rounded-xl border border-cyber-700/60 space-y-2">
+                            <div class="flex justify-between items-center text-xs">
+                                <label class="font-medium">Target Z (Depth)</label>
+                                <span id="valIKZ" class="font-mono text-cyber-accent">0.00 m</span>
+                            </div>
+                            <input type="range" id="sliderIKZ" min="-3" max="3" step="0.05" value="1.2" class="w-full">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PRESET MOVEMENTS -->
+                <div class="pt-2 border-t border-cyber-700/80">
+                    <span class="text-xs font-mono text-slate-400 block mb-2.5">PRESET ROUTINES</span>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="runPreset('home')" class="p-2.5 bg-cyber-900 hover:bg-cyber-700/50 border border-cyber-700 rounded-lg text-xs font-medium text-left flex items-center gap-2 transition">
+                            <i data-lucide="home" class="w-3.5 h-3.5 text-cyber-accent"></i> Home Position
+                        </button>
+                        <button onclick="runPreset('pickPlace')" class="p-2.5 bg-cyber-900 hover:bg-cyber-700/50 border border-cyber-700 rounded-lg text-xs font-medium text-left flex items-center gap-2 transition">
+                            <i data-lucide="box" class="w-3.5 h-3.5 text-cyber-amber"></i> Pick & Place
+                        </button>
+                        <button onclick="runPreset('wave')" class="p-2.5 bg-cyber-900 hover:bg-cyber-700/50 border border-cyber-700 rounded-lg text-xs font-medium text-left flex items-center gap-2 transition">
+                            <i data-lucide="hand" class="w-3.5 h-3.5 text-cyber-pink"></i> Wave Salute
+                        </button>
+                        <button onclick="runPreset('circle')" class="p-2.5 bg-cyber-900 hover:bg-cyber-700/50 border border-cyber-700 rounded-lg text-xs font-medium text-left flex items-center gap-2 transition">
+                            <i data-lucide="disc" class="w-3.5 h-3.5 text-cyber-green"></i> Circle Arc
+                        </button>
+                    </div>
+                </div>
+
+                <!-- KEYFRAME ANIMATION SEQUENCER -->
+                <div class="pt-2 border-t border-cyber-700/80 space-y-3">
+                    <div class="flex items-center justify-between text-xs font-mono">
+                        <span class="text-slate-400">MOTION SEQUENCER</span>
+                        <span id="keyframeCounter" class="text-cyber-accent">0 Frames</span>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button id="btnAddKeyframe" class="flex-1 py-2 bg-cyber-700/60 hover:bg-cyber-700 text-xs font-semibold rounded-lg border border-cyber-600 transition flex items-center justify-center gap-1.5">
+                            <i data-lucide="plus-circle" class="w-3.5 h-3.5 text-cyber-accent"></i> Record Keyframe
+                        </button>
+                        <button id="btnClearKeyframes" class="px-3 py-2 bg-red-950/40 hover:bg-red-900/60 text-red-300 text-xs font-semibold rounded-lg border border-red-800/50 transition">
+                            Clear
+                        </button>
+                    </div>
+
+                    <!-- Sequence Timeline Bar -->
+                    <div id="timelineList" class="flex gap-1.5 overflow-x-auto py-1 min-h-[36px] bg-cyber-900/80 p-1.5 rounded-lg border border-cyber-700/50">
+                        <span class="text-[11px] text-slate-500 my-auto px-2">No keyframes recorded...</span>
+                    </div>
+
+                    <!-- Playback Controls -->
+                    <div class="flex items-center justify-between bg-cyber-900/60 p-2 rounded-xl border border-cyber-700/60">
+                        <div class="flex items-center gap-1">
+                            <button id="btnPlaySeq" class="p-2 bg-cyber-accent hover:bg-cyan-300 text-cyber-900 rounded-lg transition font-bold">
+                                <i data-lucide="play" class="w-4 h-4"></i>
+                            </button>
+                            <button id="btnPauseSeq" class="p-2 bg-cyber-700 hover:bg-cyber-600 text-slate-200 rounded-lg transition">
+                                <i data-lucide="pause" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                        <div class="flex items-center gap-2 text-xs font-mono">
+                            <span class="text-slate-400">Loop:</span>
+                            <input type="checkbox" id="chkLoop" class="rounded bg-cyber-900 border-cyber-700 accent-cyber-accent">
+                        </div>
+                        <div class="flex items-center gap-1.5 text-xs font-mono">
+                            <span class="text-slate-400">Speed:</span>
+                            <select id="selectSpeed" class="bg-cyber-800 border border-cyber-700 rounded px-1.5 py-1 text-slate-200 focus:outline-none">
+                                <option value="0.5">0.5x</option>
+                                <option value="1" selected>1.0x</option>
+                                <option value="2">2.0x</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </aside>
+
+        <!-- Center Viewport & Telemetry HUD -->
+        <main class="flex-1 relative flex flex-col bg-cyber-900 overflow-hidden">
+            
+            <!-- 3D Canvas Container -->
+            <div id="canvasContainer" class="w-full h-full cursor-grab active:cursor-grabbing"></div>
+
+            <!-- Viewport Overlay Toggles (Top Left) -->
+            <div class="absolute top-4 left-4 z-10 flex flex-wrap gap-2">
+                <button id="toggleGrid" class="px-3 py-1.5 bg-cyber-800/80 hover:bg-cyber-700 text-xs font-mono rounded-lg border border-cyber-700 backdrop-blur text-slate-300 transition flex items-center gap-1.5">
+                    <i data-lucide="grid" class="w-3.5 h-3.5 text-cyber-accent"></i> Grid
+                </button>
+                <button id="toggleTrace" class="px-3 py-1.5 bg-cyber-800/80 hover:bg-cyber-700 text-xs font-mono rounded-lg border border-cyber-700 backdrop-blur text-slate-300 transition flex items-center gap-1.5">
+                    <i data-lucide="spline" class="w-3.5 h-3.5 text-cyber-amber"></i> Path Trace
+                </button>
+                <button id="togglePayload" class="px-3 py-1.5 bg-cyber-800/80 hover:bg-cyber-700 text-xs font-mono rounded-lg border border-cyber-700 backdrop-blur text-slate-300 transition flex items-center gap-1.5">
+                    <i data-lucide="package" class="w-3.5 h-3.5 text-cyber-pink"></i> Spawn Object
+                </button>
+                <button id="btnCamReset" class="px-3 py-1.5 bg-cyber-800/80 hover:bg-cyber-700 text-xs font-mono rounded-lg border border-cyber-700 backdrop-blur text-slate-300 transition flex items-center gap-1.5">
+                    <i data-lucide="camera" class="w-3.5 h-3.5"></i> Recenter
+                </button>
+            </div>
+
+            <!-- Real-time Telemetry HUD Card (Top Right) -->
+            <div class="absolute top-4 right-4 z-10 w-64 bg-cyber-800/85 backdrop-blur-md p-3.5 rounded-xl border border-cyber-700/80 shadow-2xl space-y-3">
+                <div class="flex items-center justify-between border-b border-cyber-700/60 pb-2">
+                    <span class="text-xs font-bold tracking-wider font-mono text-slate-300 flex items-center gap-1.5">
+                        <i data-lucide="activity" class="w-3.5 h-3.5 text-cyber-accent"></i> END EFFECTOR
+                    </span>
+                    <span id="payloadStatus" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-400 font-mono">EMPTY</span>
+                </div>
+
+                <!-- Coordinates Grid -->
+                <div class="grid grid-cols-3 gap-2 font-mono text-center">
+                    <div class="bg-cyber-900/80 p-2 rounded-lg border border-cyber-700/40">
+                        <div class="text-[10px] text-slate-400">X (m)</div>
+                        <div id="telemetryX" class="text-xs font-bold text-cyber-accent mt-0.5">0.00</div>
+                    </div>
+                    <div class="bg-cyber-900/80 p-2 rounded-lg border border-cyber-700/40">
+                        <div class="text-[10px] text-slate-400">Y (m)</div>
+                        <div id="telemetryY" class="text-xs font-bold text-cyber-accent mt-0.5">0.00</div>
+                    </div>
+                    <div class="bg-cyber-900/80 p-2 rounded-lg border border-cyber-700/40">
+                        <div class="text-[10px] text-slate-400">Z (m)</div>
+                        <div id="telemetryZ" class="text-xs font-bold text-cyber-accent mt-0.5">0.00</div>
+                    </div>
+                </div>
+
+                <!-- Joint Load Simulation Bar -->
+                <div class="space-y-1">
+                    <div class="flex justify-between text-[11px] font-mono">
+                        <span class="text-slate-400">Max Joint Torque Load</span>
+                        <span id="torqueVal" class="text-cyber-amber">34%</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-cyber-900 rounded-full overflow-hidden border border-cyber-700/50">
+                        <div id="torqueBar" class="h-full bg-gradient-to-r from-cyber-accent via-cyber-amber to-cyber-pink transition-all duration-300" style="width: 34%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- G-Code & Command Log Terminal Drawer (Bottom Center) -->
+            <div class="absolute bottom-4 left-4 right-4 z-10 max-w-4xl mx-auto bg-cyber-800/90 backdrop-blur-md rounded-xl border border-cyber-700/80 shadow-2xl overflow-hidden flex flex-col">
+                <div class="px-3 py-1.5 bg-cyber-900/80 border-b border-cyber-700/60 flex justify-between items-center text-xs font-mono text-slate-400">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="terminal" class="w-3.5 h-3.5 text-cyber-green"></i>
+                        <span>MOTION COMMAND LOG & G-CODE TERMINAL</span>
+                    </div>
+                    <button id="btnClearLog" class="hover:text-slate-200 text-[10px] uppercase tracking-wider">Clear Console</button>
+                </div>
+                <div id="terminalLog" class="h-20 p-2.5 overflow-y-auto font-mono text-[11px] space-y-1 bg-cyber-900/90 text-slate-300">
+                    <div class="text-slate-500">[SYSTEM INIT] Nexus Robotic Controller v4.0 loaded successfully.</div>
+                    <div class="text-cyber-green">[READY] Servos calibrated. Awaiting motion stream commands...</div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Application Script -->
+    <script>
+        // --- Globals & State Setup ---
+        let scene, camera, renderer, controls;
+        let robotBase, link1, link2, link3, wrist, gripperLeft, gripperRight;
+        let ikTargetMarker, pathTraceLine, pathGeometry, tracePoints = [];
+        let payloadMesh = null;
+        let activeMode = 'FK'; // 'FK' or 'IK'
+
+        // Robot Joint Specifications (Lengths in meters)
+        const L1 = 0.8;  // Base height
+        const L2 = 1.4;  // Upper arm length
+        const L3 = 1.2;  // Forearm length
+        const L4 = 0.5;  // Wrist length
+
+        // Current Joint Angles (Degrees)
+        let joints = {
+            j1: 0,
+            j2: 30,
+            j3: -45,
+            j4: 15,
+            gripper: 50
+        };
+
+        // IK Target State (World Coordinates)
+        let ikTargetPos = new THREE.Vector3(1.8, 2.1, 1.2);
+        let isDraggingIKTarget = false;
+        let raycaster = new THREE.Raycaster();
+        let mouse = new THREE.Vector2();
+        let dragPlane = new THREE.Plane();
+        let planeIntersect = new THREE.Vector3();
+
+        // Sequencer / Keyframes
+        let keyframes = [];
+        let isPlayingSequence = false;
+        let currentSequenceIndex = 0;
+        let playbackTimer = null;
+
+        // Initialize Icons
+        lucide.createIcons();
+
+        // --- Three.js Scene Setup ---
+        function initScene() {
+            const container = document.getElementById('canvasContainer');
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x090d16);
+            scene.fog = new THREE.FogExp2(0x090d16, 0.035);
+
+            camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 100);
+            camera.position.set(4.5, 3.5, 4.5);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 + 0.05; // Slightly below ground level
+            controls.minDistance = 1.5;
+            controls.maxDistance = 15;
+
+            // Lighting Design
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+            dirLight.position.set(5, 8, 5);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            scene.add(dirLight);
+
+            const cyanSpot = new THREE.PointLight(0x00f0ff, 1.2, 10);
+            cyanSpot.position.set(-3, 4, -2);
+            scene.add(cyanSpot);
+
+            const amberSpot = new THREE.PointLight(0xffb703, 0.8, 10);
+            amberSpot.position.set(3, 2, 3);
+            scene.add(amberSpot);
+
+            // Ground & Grid Setup
+            const gridHelper = new THREE.GridHelper(16, 32, 0x00f0ff, 0x1f293d);
+            gridHelper.position.y = 0;
+            gridHelper.name = "gridHelper";
+            scene.add(gridHelper);
+
+            const floorGeo = new THREE.PlaneGeometry(30, 30);
+            const floorMat = new THREE.MeshStandardMaterial({ 
+                color: 0x070a10, 
+                roughness: 0.8, 
+                metalness: 0.2 
+            });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Construct 3D Robot Rig
+            buildRobotArm();
+
+            // Create Path Trace Line Visualization
+            pathGeometry = new THREE.BufferGeometry();
+            const pathMat = new THREE.LineBasicMaterial({ color: 0xffb703, linewidth: 2 });
+            pathTraceLine = new THREE.Line(pathGeometry, pathMat);
+            scene.add(pathTraceLine);
+
+            // Create Drag Target Sphere for IK
+            const targetGeo = new THREE.SphereGeometry(0.12, 32, 32);
+            const targetMat = new THREE.MeshStandardMaterial({
+                color: 0x00f0ff,
+                emissive: 0x00f0ff,
+                emissiveIntensity: 0.6,
+                wireframe: true
+            });
+            ikTargetMarker = new THREE.Mesh(targetGeo, targetMat);
+            ikTargetMarker.position.copy(ikTargetPos);
+            ikTargetMarker.visible = false; // Enabled in IK mode
+            scene.add(ikTargetMarker);
+
+            // Setup Resize & Drag Listeners
+            window.addEventListener('resize', onWindowResize);
+            setupDragControls();
+
+            // Initial Forward Kinematics Update
+            updateArmPose();
+        }
+
+        // --- Build Robot 3D Mesh Assemblies ---
+        function buildRobotArm() {
+            const metalMat = new THREE.MeshStandardMaterial({ color: 0x2a364f, roughness: 0.4, metalness: 0.8 });
+            const darkMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.6, metalness: 0.5 });
+            const cyanAccentMat = new THREE.MeshStandardMaterial({ color: 0x00f0ff, roughness: 0.3, metalness: 0.9 });
+            const amberMat = new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.5, metalness: 0.5 });
+
+            // 1. Base Pedestal
+            robotBase = new THREE.Group();
+            scene.add(robotBase);
+
+            const baseGeo = new THREE.CylinderGeometry(0.6, 0.75, 0.3, 32);
+            const baseMesh = new THREE.Mesh(baseGeo, darkMat);
+            baseMesh.position.y = 0.15;
+            baseMesh.castShadow = true;
+            robotBase.add(baseMesh);
+
+            const baseColumnGeo = new THREE.CylinderGeometry(0.4, 0.4, L1, 32);
+            const baseColumn = new THREE.Mesh(baseColumnGeo, metalMat);
+            baseColumn.position.y = 0.15 + L1 / 2;
+            baseColumn.castShadow = true;
+            robotBase.add(baseColumn);
+
+            // 2. Link 1 (Shoulder Pivot)
+            link1 = new THREE.Group();
+            link1.position.y = L1 + 0.15;
+            robotBase.add(link1);
+
+            const shoulderJointGeo = new THREE.SphereGeometry(0.35, 32, 32);
+            const shoulderJoint = new THREE.Mesh(shoulderJointGeo, cyanAccentMat);
+            shoulderJoint.castShadow = true;
+            link1.add(shoulderJoint);
+
+            const arm1Geo = new THREE.CylinderGeometry(0.22, 0.28, L2, 24);
+            const arm1Mesh = new THREE.Mesh(arm1Geo, metalMat);
+            arm1Mesh.position.y = L2 / 2;
+            arm1Mesh.castShadow = true;
+            link1.add(arm1Mesh);
+
+            // 3. Link 2 (Elbow Pivot)
+            link2 = new THREE.Group();
+            link2.position.y = L2;
+            link1.add(link2);
+
+            const elbowJointGeo = new THREE.SphereGeometry(0.28, 32, 32);
+            const elbowJoint = new THREE.Mesh(elbowJointGeo, amberMat);
+            elbowJoint.castShadow = true;
+            link2.add(elbowJoint);
+
+            const arm2Geo = new THREE.CylinderGeometry(0.18, 0.22, L3, 24);
+            const arm2Mesh = new THREE.Mesh(arm2Geo, metalMat);
+            arm2Mesh.position.y = L3 / 2;
+            arm2Mesh.castShadow = true;
+            link2.add(arm2Mesh);
+
+            // 4. Link 3 (Wrist Pivot)
+            link3 = new THREE.Group();
+            link3.position.y = L3;
+            link2.add(link3);
+
+            const wristJointGeo = new THREE.SphereGeometry(0.2, 32, 32);
+            const wristJoint = new THREE.Mesh(wristJointGeo, cyanAccentMat);
+            wristJoint.castShadow = true;
+            link3.add(wristJoint);
+
+            const arm3Geo = new THREE.CylinderGeometry(0.12, 0.16, L4, 24);
+            const arm3Mesh = new THREE.Mesh(arm3Geo, darkMat);
+            arm3Mesh.position.y = L4 / 2;
+            arm3Mesh.castShadow = true;
+            link3.add(arm3Mesh);
+
+            // 5. Wrist & Gripper Assembly
+            wrist = new THREE.Group();
+            wrist.position.y = L4;
+            link3.add(wrist);
+
+            const gripperBaseGeo = new THREE.BoxGeometry(0.35, 0.1, 0.2);
+            const gripperBase = new THREE.Mesh(gripperBaseGeo, cyanAccentMat);
+            gripperBase.position.y = 0.05;
+            wrist.add(gripperBase);
+
+            // Finger Left
+            const fingerGeo = new THREE.BoxGeometry(0.05, 0.25, 0.08);
+            gripperLeft = new THREE.Mesh(fingerGeo, darkMat);
+            gripperLeft.position.set(-0.12, 0.2, 0);
+            wrist.add(gripperLeft);
+
+            // Finger Right
+            gripperRight = new THREE.Mesh(fingerGeo, darkMat);
+            gripperRight.position.set(0.12, 0.2, 0);
+            wrist.add(gripperRight);
+        }
+
+        // --- Kinematics Engine (FK & Dynamic Cyclic Coordinate Descent IK) ---
+        function updateArmPose() {
+            // Apply FK Rotations
+            robotBase.rotation.y = THREE.MathUtils.degToRad(joints.j1);
+            link1.rotation.z = THREE.MathUtils.degToRad(-joints.j2);
+            link2.rotation.z = THREE.MathUtils.degToRad(-joints.j3);
+            link3.rotation.z = THREE.MathUtils.degToRad(-joints.j4);
+
+            // Update Gripper Opening Width
+            const gripOffset = (joints.gripper / 100) * 0.1 + 0.03;
+            gripperLeft.position.x = -gripOffset;
+            gripperRight.position.x = gripOffset;
+
+            // Compute World Position of End Effector
+            const endEffectorWorldPos = new THREE.Vector3();
+            wrist.getWorldPosition(endEffectorWorldPos);
+
+            // Update Telemetry HUD
+            document.getElementById('telemetryX').innerText = endEffectorWorldPos.x.toFixed(2);
+            document.getElementById('telemetryY').innerText = endEffectorWorldPos.y.toFixed(2);
+            document.getElementById('telemetryZ').innerText = endEffectorWorldPos.z.toFixed(2);
+
+            // Update Torque load calculation heuristic
+            const reachRatio = endEffectorWorldPos.length() / (L1 + L2 + L3 + L4);
+            const loadPercent = Math.min(Math.round(reachRatio * 85 + (payloadMesh ? 15 : 0)), 100);
+            document.getElementById('torqueVal').innerText = loadPercent + "%";
+            document.getElementById('torqueBar').style.width = loadPercent + "%";
+
+            // Add point to trajectory path trace
+            tracePoints.push(endEffectorWorldPos.clone());
+            if (tracePoints.length > 150) tracePoints.shift();
+            pathGeometry.setFromPoints(tracePoints);
+
+            // Update attached payload position if held
+            if (payloadMesh && joints.gripper < 35) {
+                payloadMesh.position.copy(endEffectorWorldPos).add(new THREE.Vector3(0, 0.1, 0));
+                document.getElementById('payloadStatus').innerText = "HOLDING PAYLOAD";
+                document.getElementById('payloadStatus').className = "text-[10px] px-1.5 py-0.5 rounded bg-cyber-green/20 text-cyber-green font-mono border border-cyber-green/40";
+            } else if (payloadMesh) {
+                document.getElementById('payloadStatus').innerText = "PAYLOAD NEAR";
+                document.getElementById('payloadStatus').className = "text-[10px] px-1.5 py-0.5 rounded bg-cyber-amber/20 text-cyber-amber font-mono border border-cyber-amber/40";
+            }
+        }
+
+        // CCD Inverse Kinematics Solver algorithm
+        function solveIK(targetPos) {
+            const iterations = 8;
+            const tolerance = 0.02;
+
+            for (let iter = 0; iter < iterations; iter++) {
+                const currentEffectorPos = new THREE.Vector3();
+                wrist.getWorldPosition(currentEffectorPos);
+
+                if (currentEffectorPos.distanceTo(targetPos) < tolerance) {
+                    document.getElementById('ikStatus').innerText = "CONVERGED";
+                    document.getElementById('ikStatus').className = "text-cyber-green";
+                    break;
+                } else {
+                    document.getElementById('ikStatus').innerText = "SOLVING...";
+                    document.getElementById('ikStatus').className = "text-cyber-amber";
+                }
+
+                // Analytical approximation for smooth planar & base alignment
+                const theta1 = Math.atan2(targetPos.x, targetPos.z);
+                joints.j1 = THREE.MathUtils.radToDeg(theta1);
+
+                // Planar IK distance projection
+                const r = Math.sqrt(targetPos.x * targetPos.x + targetPos.z * targetPos.z);
+                const y = targetPos.y - (L1 + 0.15);
+
+                const d = Math.sqrt(r * r + y * y);
+                const reachMax = (L2 + L3 + L4) * 0.98;
+                const distClamped = Math.min(d, reachMax);
+
+                // Law of Cosines for 2-link planar IK
+                const cosElbow = (distClamped * distClamped - L2 * L2 - L3 * L3) / (2 * L2 * L3);
+                const clampedCosElbow = THREE.MathUtils.clamp(cosElbow, -1, 1);
+                const angleElbow = Math.acos(clampedCosElbow);
+
+                const alpha = Math.atan2(y, r);
+                const beta = Math.atan2(L3 * Math.sin(angleElbow), L2 + L3 * Math.cos(angleElbow));
+
+                const angleShoulder = alpha + beta;
+
+                joints.j2 = THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(Math.PI / 2 - angleShoulder), -60, 120);
+                joints.j3 = THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(-angleElbow), -140, 140);
+                joints.j4 = THREE.MathUtils.clamp(-joints.j2 - joints.j3 + 15, -110, 110);
+            }
+
+            syncUIWithJoints();
+            updateArmPose();
+        }
+
+        // --- Drag Controls for 3D Target Marker ---
+        function setupDragControls() {
+            const dom = renderer.domElement;
+
+            dom.addEventListener('pointerdown', (e) => {
+                if (activeMode !== 'IK') return;
+
+                const rect = dom.getBoundingClientRect();
+                mouse.x = ((e.clientX - rect.left) / dom.clientWidth) * 2 - 1;
+                mouse.y = -((e.clientY - rect.top) / dom.clientHeight) * 2 + 1;
+
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObject(ikTargetMarker);
+
+                if (intersects.length > 0) {
+                    isDraggingIKTarget = true;
+                    controls.enabled = false; // Disable camera orbiting during drag
+                    dragPlane.setFromNormalAndCoplanarPoint(
+                        camera.getWorldDirection(dragPlane.normal).negate(),
+                        ikTargetMarker.position
+                    );
+                }
+            });
+
+            dom.addEventListener('pointermove', (e) => {
+                if (!isDraggingIKTarget || activeMode !== 'IK') return;
+
+                const rect = dom.getBoundingClientRect();
+                mouse.x = ((e.clientX - rect.left) / dom.clientWidth) * 2 - 1;
+                mouse.y = -((e.clientY - rect.top) / dom.clientHeight) * 2 + 1;
+
+                raycaster.setFromCamera(mouse, camera);
+                if (raycaster.ray.intersectPlane(dragPlane, planeIntersect)) {
+                    planeIntersect.y = Math.max(0.1, planeIntersect.y); // Floor guard
+                    ikTargetPos.copy(planeIntersect);
+                    ikTargetMarker.position.copy(ikTargetPos);
+                    
+                    // Sync sliders
+                    document.getElementById('sliderIKX').value = ikTargetPos.x;
+                    document.getElementById('sliderIKY').value = ikTargetPos.y;
+                    document.getElementById('sliderIKZ').value = ikTargetPos.z;
+                    updateIKLabels();
+
+                    solveIK(ikTargetPos);
+                    logCommand(`G0 X${ikTargetPos.x.toFixed(2)} Y${ikTargetPos.y.toFixed(2)} Z${ikTargetPos.z.toFixed(2)} (IK MOVE)`);
+                }
+            });
+
+            dom.addEventListener('pointerup', () => {
+                isDraggingIKTarget = false;
+                controls.enabled = true;
+            });
+        }
+
+        // --- UI Events & Mode Handler ---
+        function switchMode(mode) {
+            activeMode = mode;
+            const tabFK = document.getElementById('tabFK');
+            const tabIK = document.getElementById('tabIK');
+            const panelFK = document.getElementById('panelFK');
+            const panelIK = document.getElementById('panelIK');
+
+            if (mode === 'FK') {
+                tabFK.className = "py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition bg-cyber-accent text-cyber-900 font-bold shadow-sm";
+                tabIK.className = "py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition bg-cyber-700/50 text-slate-400 hover:text-slate-200";
+                panelFK.classList.remove('hidden');
+                panelIK.classList.add('hidden');
+                ikTargetMarker.visible = false;
+                logCommand("[MODE CHANGE] Switched to Forward Kinematics (FK)");
+            } else {
+                tabIK.className = "py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition bg-cyber-accent text-cyber-900 font-bold shadow-sm";
+                tabFK.className = "py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition bg-cyber-700/50 text-slate-400 hover:text-slate-200";
+                panelIK.classList.remove('hidden');
+                panelFK.classList.add('hidden');
+                ikTargetMarker.visible = true;
+                logCommand("[MODE CHANGE] Switched to Inverse Kinematics (IK)");
+                solveIK(ikTargetPos);
+            }
+        }
+
+        function syncUIWithJoints() {
+            document.getElementById('sliderJ1').value = joints.j1;
+            document.getElementById('sliderJ2').value = joints.j2;
+            document.getElementById('sliderJ3').value = joints.j3;
+            document.getElementById('sliderJ4').value = joints.j4;
+            document.getElementById('sliderGripper').value = joints.gripper;
+
+            document.getElementById('valJ1').innerText = Math.round(joints.j1) + "°";
+            document.getElementById('valJ2').innerText = Math.round(joints.j2) + "°";
+            document.getElementById('valJ3').innerText = Math.round(joints.j3) + "°";
+            document.getElementById('valJ4').innerText = Math.round(joints.j4) + "°";
+            document.getElementById('valGripper').innerText = Math.round(joints.gripper) + "%";
+        }
+
+        function updateIKLabels() {
+            document.getElementById('valIKX').innerText = ikTargetPos.x.toFixed(2) + " m";
+            document.getElementById('valIKY').innerText = ikTargetPos.y.toFixed(2) + " m";
+            document.getElementById('valIKZ').innerText = ikTargetPos.z.toFixed(2) + " m";
+        }
+
+        // Attach FK Slider Handlers
+        ['J1', 'J2', 'J3', 'J4', 'Gripper'].forEach(id => {
+            const slider = document.getElementById('slider' + id);
+            slider.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                joints[id.toLowerCase()] = val;
+                syncUIWithJoints();
+                updateArmPose();
+                logCommand(`MOVE ${id} TO ${val.toFixed(1)}°`);
+            });
+        });
+
+        // Attach IK Slider Handlers
+        ['X', 'Y', 'Z'].forEach(axis => {
+            const slider = document.getElementById('sliderIK' + axis);
+            slider.addEventListener('input', (e) => {
+                ikTargetPos[axis.toLowerCase()] = parseFloat(e.target.value);
+                ikTargetMarker.position.copy(ikTargetPos);
+                updateIKLabels();
+                solveIK(ikTargetPos);
+                logCommand(`G1 ${axis}${ikTargetPos[axis.toLowerCase()].toFixed(2)}`);
+            });
+        });
+
+        // Console Logger Terminal Output
+        function logCommand(msg) {
+            const logContainer = document.getElementById('terminalLog');
+            const entry = document.createElement('div');
+            const time = new Date().toLocaleTimeString().split(' ')[0];
+            entry.innerHTML = `<span class="text-slate-500">[${time}]</span> ${msg}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // Preset Movements Logic
+        function runPreset(name) {
+            logCommand(`[PRESET] Triggering sequence: ${name.toUpperCase()}`);
+            let targetJoints = { j1: 0, j2: 30, j3: -45, j4: 15, gripper: 50 };
+
+            if (name === 'home') {
+                targetJoints = { j1: 0, j2: 0, j3: 0, j4: 0, gripper: 20 };
+            } else if (name === 'pickPlace') {
+                targetJoints = { j1: 45, j2: 60, j3: -30, j4: 45, gripper: 90 };
+            } else if (name === 'wave') {
+                targetJoints = { j1: -30, j2: 80, j3: -80, j4: 60, gripper: 100 };
+            } else if (name === 'circle') {
+                targetJoints = { j1: 90, j2: 20, j3: -60, j4: -20, gripper: 40 };
+            }
+
+            animateToJoints(targetJoints, 1000);
+        }
+
+        function animateToJoints(target, duration = 1000) {
+            const start = { ...joints };
+            const startTime = performance.now();
+
+            function step(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const ease = progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
+
+                joints.j1 = start.j1 + (target.j1 - start.j1) * ease;
+                joints.j2 = start.j2 + (target.j2 - start.j2) * ease;
+                joints.j3 = start.j3 + (target.j3 - start.j3) * ease;
+                joints.j4 = start.j4 + (target.j4 - start.j4) * ease;
+                joints.gripper = start.gripper + (target.gripper - start.gripper) * ease;
+
+                syncUIWithJoints();
+                updateArmPose();
+
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                }
+            }
+            requestAnimationFrame(step);
+        }
+
+        // Keyframe Sequencer Implementation
+        document.getElementById('btnAddKeyframe').addEventListener('click', () => {
+            keyframes.push({ ...joints });
+            renderTimeline();
+            logCommand(`[KEYFRAME] Recorded Frame #${keyframes.length}`);
+        });
+
+        document.getElementById('btnClearKeyframes').addEventListener('click', () => {
+            keyframes = [];
+            renderTimeline();
+            logCommand(`[KEYFRAME] Sequence cleared`);
+        });
+
+        function renderTimeline() {
+            const list = document.getElementById('timelineList');
+            document.getElementById('keyframeCounter').innerText = `${keyframes.length} Frames`;
+
+            if (keyframes.length === 0) {
+                list.innerHTML = `<span class="text-[11px] text-slate-500 my-auto px-2">No keyframes recorded...</span>`;
+                return;
+            }
+
+            list.innerHTML = keyframes.map((kf, i) => `
+                <div class="px-2.5 py-1 bg-cyber-800 border border-cyber-accent/40 text-cyber-accent rounded text-[11px] font-mono shrink-0 flex items-center gap-1.5 shadow-sm">
+                    <span class="w-1.5 h-1.5 rounded-full bg-cyber-accent"></span> #${i + 1}
+                </div>
+            `).join('');
+        }
+
+        // Playback Controller
+        document.getElementById('btnPlaySeq').addEventListener('click', () => {
+            if (keyframes.length < 2) {
+                logCommand("<span class='text-cyber-amber'>[WARN] Need at least 2 keyframes to play sequence.</span>");
+                return;
+            }
+            isPlayingSequence = true;
+            currentSequenceIndex = 0;
+            logCommand("[SEQUENCER] Starting playback loop...");
+            playNextKeyframe();
+        });
+
+        document.getElementById('btnPauseSeq').addEventListener('click', () => {
+            isPlayingSequence = false;
+            if (playbackTimer) clearTimeout(playbackTimer);
+            logCommand("[SEQUENCER] Playback paused.");
+        });
+
+        function playNextKeyframe() {
+            if (!isPlayingSequence || keyframes.length === 0) return;
+
+            const target = keyframes[currentSequenceIndex];
+            const speed = parseFloat(document.getElementById('selectSpeed').value);
+            const duration = 1200 / speed;
+
+            animateToJoints(target, duration);
+
+            playbackTimer = setTimeout(() => {
+                currentSequenceIndex++;
+                if (currentSequenceIndex >= keyframes.length) {
+                    if (document.getElementById('chkLoop').checked) {
+                        currentSequenceIndex = 0;
+                        playNextKeyframe();
+                    } else {
+                        isPlayingSequence = false;
+                        logCommand("[SEQUENCER] Sequence playback completed.");
+                    }
+                } else {
+                    playNextKeyframe();
+                }
+            }, duration + 100);
+        }
+
+        // Viewport Overlays Setup
+        document.getElementById('toggleGrid').addEventListener('click', () => {
+            const grid = scene.getObjectByName('gridHelper');
+            if (grid) grid.visible = !grid.visible;
+        });
+
+        document.getElementById('toggleTrace').addEventListener('click', () => {
+            pathTraceLine.visible = !pathTraceLine.visible;
+            if (!pathTraceLine.visible) tracePoints = [];
+        });
+
+        document.getElementById('togglePayload').addEventListener('click', () => {
+            if (payloadMesh) {
+                scene.remove(payloadMesh);
+                payloadMesh = null;
+                document.getElementById('payloadStatus').innerText = "EMPTY";
+                document.getElementById('payloadStatus').className = "text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-400 font-mono";
+                logCommand("[OBJECT] Payload box despawned.");
+            } else {
+                const geo = new THREE.BoxGeometry(0.25, 0.25, 0.25);
+                const mat = new THREE.MeshStandardMaterial({ color: 0xff0055, roughness: 0.3 });
+                payloadMesh = new THREE.Mesh(geo, mat);
+                payloadMesh.castShadow = true;
+                payloadMesh.position.set(1.5, 0.125, 0.5);
+                scene.add(payloadMesh);
+                logCommand("[OBJECT] Spawned pickable cargo payload box at X:1.5 Z:0.5");
+            }
+        });
+
+        document.getElementById('btnCamReset').addEventListener('click', () => {
+            camera.position.set(4.5, 3.5, 4.5);
+            controls.target.set(0, 1.2, 0);
+            controls.update();
+        });
+
+        document.getElementById('btnResetAll').addEventListener('click', () => {
+            joints = { j1: 0, j2: 30, j3: -45, j4: 15, gripper: 50 };
+            ikTargetPos.set(1.8, 2.1, 1.2);
+            ikTargetMarker.position.copy(ikTargetPos);
+            syncUIWithJoints();
+            updateIKLabels();
+            updateArmPose();
+            logCommand("[SYSTEM] Reset joints to default configuration.");
+        });
+
+        document.getElementById('btnClearLog').addEventListener('click', () => {
+            document.getElementById('terminalLog').innerHTML = '';
+        });
+
+        function onWindowResize() {
+            const container = document.getElementById('canvasContainer');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        // Main Animation Render Loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            // Subtle target sphere rotation when in IK mode
+            if (ikTargetMarker.visible) {
+                ikTargetMarker.rotation.y += 0.01;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Window Load Bootstrapper
+        window.onload = function () {
+            initScene();
+            animate();
+        };
+    </script>
+</body>
+</html>
+```
